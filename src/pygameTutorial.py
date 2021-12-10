@@ -7,6 +7,13 @@ pygame.init()
 win = pygame.display.set_mode((500,500))
 pygame.display.set_caption("First Game")
 
+imgPath = "../images/"
+
+walkRight = [pygame.image.load(str.join(imgPath,'R1.png')),pygame.image.load(str.join(imgPath,'R2.png')),pygame.image.load(str.join(imgPath,'R3.png')),pygame.image.load(str.join(imgPath,'R4.png')),pygame.image.load(str.join(imgPath,'R5.png')),]
+walkLeft = [pygame.image.load(str.join(imgPath,'L1.png')),pygame.image.load(str.join(imgPath,'L2.png')),pygame.image.load(str.join(imgPath,'L3.png')),pygame.image.load(str.join(imgPath,'L4.png')),pygame.image.load(str.join(imgPath,'L5.png')),]
+bg = pygame.image.load(str.join(imgPath,'standing.png'))
+char = pygame.image.load(str.join(imgPath,'standing.png'))
+
 x = 50
 y = 50
 width = 40
@@ -15,6 +22,8 @@ vel = 5
 
 isJumping = False
 jumpCount = 10
+left = False 
+right = False 
 
 run = True
 
@@ -34,12 +43,6 @@ while run:
         x += vel
 
     if not isJumping:    
-        if keys[pygame.K_UP] and y > vel:
-            y -= vel
-
-        if keys[pygame.K_DOWN] and y < 500 - height - vel:
-            y += vel
-
         if keys[pygame.K_SPACE]:
             isJumping = True
     else:
