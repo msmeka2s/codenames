@@ -3,6 +3,8 @@ import os
 import math
 import numpy as np
 from typing import Dict, List, Tuple
+from random import randrange
+
 sys.path.append(os.path.join(sys.path[0],'..','lib'))
 import pygame
 pygame.init()
@@ -83,10 +85,14 @@ class GameWord:
     def __init__(self,word:str,belonging:int):
         self.word = word 
         self.belonging = belonging
-        pass 
 
     def store_most_similar_words(self,most_similar_words:List[str]):
         self.most_similar_words = most_similar_words
+
+    def add_shared_similar_word(self, shared_similar_word: str, score: float, sharing_words: List[GameWord])
+
+    def reveal_belonging(self)
+
 
 class ClueWord:
     def __init__(self, word:str, scores: List[Tuple[GameWord,float]]) -> None:
@@ -110,25 +116,58 @@ class GameGenerator:
         self.game_words = []
         self.game_manager = None
         self.game_ui_creator = None
-        pass
+        self.clue_giver_bot = None
+        self.guesser_bot = None
 
-    def generate_words(self, words_n: int=25) -> List[str]:
-        pass 
+    def generate_words(self, words_n: int=25) -> List[GameWord]:
+        for i in range(words_n):
+            word_name = "Test"
 
-    def assign_belongings(self, words: List[str], bomb_n: int = 1, teamA_n: int = 9, teamB_n: int = 8) -> List[GameWord]:
-        pass 
+            # TODO: get random word name from pool
+
+            newWord = GameWord(word_name)
+            self.game_words.append(newWord)
+        return self.game_words
+
+
+    def assign_belongings(self, words: List[GameWord], bomb_n: int = 1, teamA_n: int = 9, teamB_n: int = 8) -> List[GameWord]:
+        neutral_words_n = len(words) - bomb_n - teamA_n - teamB_n
+        for word in words:
+            correct_belonging_found = False
+            while not correct_belonging_found:
+                belonging = randrange(4)
+                if (belonging == 0 and bomb_n > 0):
+                    bomb_n -= 1
+                    correct_belonging_found = True
+                    word.belonging = belonging
+                if (belonging == 1 and teamA_n > 0):
+                    teamA_n -= 1
+                    correct_belonging_found = True
+                    word.belonging = belonging
+                if (belonging == 2 and teamB_n > 0):
+                    teamB_n -= 1
+                    correct_belonging_found = True
+                    word.belonging = belonging
+                if (belonging == 3 and neutral_words_n > 0):
+                    neutral_words_n -= 1
+                    correct_belonging_found = True
+                    word.belonging = belonging
+
+        return words
+
+
 
     def create_clue_giver_bot(self):
-        pass 
+        self.clue_giver_bot = ClueGiverBot
 
     def create_guesser_bot(self):
-        pass 
+        self.guesser_bot = GuesserBot
 
     def create_game_manager(self):
-        pass 
+        self.game_manager = GameManager()
 
     def create_game_ui_creator(self):
-        pass 
+        self.game_ui_creator = GameUiCreator()
 
     def pass_game_ui_creator_to_game_manager(self):
         self.game_manager.game_ui_creator = self.game_ui_creator 
@@ -166,7 +205,19 @@ class GuesserBot:
         pass
 
     def take_guess(self,given_clue:Tuple[str,int]):
-        pass 
+        most_similar = self.vector_model.most_similar(given_clue[0], 200)
+        guesses = []
+        for i in range(given_clue[1]):
+            found_guess = False
+            for ms in most_similar:
+                if not found_guess:
+                    ms_word = ms[0]
+                    for game_word in self.game_words:
+                        if ms_word === game_word.word:
+                            found_guess = True
+                            guesses.append(game_word)
+                            break
+        return guesses
 
     def handle_reveal(self,guess_was_right:bool):
         pass 
