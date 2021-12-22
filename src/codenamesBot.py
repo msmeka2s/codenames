@@ -95,14 +95,19 @@ class VectorModel: # Max
                     most_similar_words[i] = (w,score)
         return most_similar_words
 
-class GameWord: # Max
+class GameWord: # Florian
     def __init__(self,word:str,belonging:int):
         self.word = word 
         self.belonging = belonging
+        self.revealed = False
         pass 
 
     def store_most_similar_words(self,most_similar_words:List[str]):
         self.most_similar_words = most_similar_words
+
+    def reveal_belonging(self)->int:
+        self.revealed = True
+        return self.belonging
 
 class ClueWord: # Florian
     def __init__(self, word:str, scores: List[Tuple[GameWord,float]]) -> None:
@@ -201,7 +206,6 @@ class WordButton: # Florian
         self.rect = pygame.Rect(pos_x,pos_y,word_button_size[0],word_button_size[1])
         self.draw_color = word_button_color_unknown
         self.font_color = font_color
-        self.revealed = False
         self.draw(win)
 
     def draw(self,win):        
@@ -209,7 +213,7 @@ class WordButton: # Florian
         # get mouse position
         pos = pygame.mouse.get_pos()
 
-        if not self.revealed:
+        if not self.game_word.revealed:
             # check mouseover and clicked conditions
             if self.rect.collidepoint(pos):
                 # mouseover 
@@ -231,15 +235,15 @@ class WordButton: # Florian
 
     def reveal_belonging(self):
         if self.game_word.belonging == 0:
-            self.draw_color = word_button_color_neutral
+            self.draw_color = word_button_color_bomb
+            self.font_color = font_color_bomb
         elif self.game_word.belonging == 1:
             self.draw_color = word_button_color_teamA
         elif self.game_word.belonging == 2:
             self.draw_color = word_button_color_teamB
         elif self.game_word.belonging == 3:
-            self.draw_color = word_button_color_bomb
-            self.font_color = font_color_bomb
-        self.revealed = True
+            self.draw_color = word_button_color_neutral
+        self.game_word.reveal_belonging()
 
 class GameManager: # Florian
     def __init__(self) -> None:
