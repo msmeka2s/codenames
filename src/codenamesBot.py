@@ -85,6 +85,7 @@ class GameWord:
     def __init__(self,word:str,belonging:int):
         self.word = word 
         self.belonging = belonging
+        self.revealed = False
 
     def store_most_similar_words(self,most_similar_words:List[str]):
         self.most_similar_words = most_similar_words
@@ -92,6 +93,8 @@ class GameWord:
     def add_shared_similar_word(self, shared_similar_word: str, score: float, sharing_words: List[GameWord])
 
     def reveal_belonging(self)
+        self.revealed = True
+        return self.belonging
 
 
 class ClueWord:
@@ -118,6 +121,7 @@ class GameGenerator:
         self.game_ui_creator = None
         self.clue_giver_bot = None
         self.guesser_bot = None
+        self.vector_model = VectorModel(vector_dict)
 
     def generate_words(self, words_n: int=25) -> List[GameWord]:
         for i in range(words_n):
@@ -158,10 +162,10 @@ class GameGenerator:
 
 
     def create_clue_giver_bot(self):
-        self.clue_giver_bot = ClueGiverBot
+        self.clue_giver_bot = ClueGiverBot(self.vector_model, 1, self.game_words)
 
     def create_guesser_bot(self):
-        self.guesser_bot = GuesserBot
+        self.guesser_bot = GuesserBot(self.vector_model, 1, self.game_words)
 
     def create_game_manager(self):
         self.game_manager = GameManager()
