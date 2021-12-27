@@ -3,8 +3,9 @@ import os
 import math
 import random
 import numpy as np
+import pickle 
 from typing import Dict, List, Tuple
-from random import randrange
+from random import randint, randrange
 
 sys.path.append(os.path.join(sys.path[0],'..','lib'))
 import pygame
@@ -15,7 +16,12 @@ codenames_font = pygame.font.SysFont('Calibri',35)
 # GLOBAL VARIABLES
 window_size = (1200,960)
 window_bg_color = (221,207,180)
-word_button_size = (200,120)
+word_button_size = (200,110)
+clue_word_size = (500,120)
+clue_amount_size = (150,120)
+clue_color = (170,240,180)
+clue_frame_color = (70,220,40)
+clue_font_color = (150,150,150)
 word_button_color_unknown = (150,150,150)
 word_button_color_hover = (200,200,200)
 word_button_color_neutral = (250,250,150)
@@ -114,12 +120,26 @@ class GameWord: # Florian
         self.revealed = True
         return self.belonging
 
+    @staticmethod 
+    def  lookup_belonging(name:str)->int:
+        if name == "bomb":
+            return 0
+        elif name == "teamA":
+            return 1
+
+        elif name == "teamB":
+            return 2
+
+        elif name == "neutral":
+            return 3
+
 
 class ClueWord: # Florian
     def __init__(self, word:str, scores: List[Tuple[GameWord,float]]) -> None:
         self.word = word 
         self.scores = scores 
         self.clue_given = False 
+        self.clue_score = 0
         self.sort_by_score()       
 
     def sort_by_score(self):
@@ -128,12 +148,13 @@ class ClueWord: # Florian
     def get_clue_score(self,team:int) -> Tuple[int,float]:
         pass 
 
-    def set_clue_give(self):
+    def set_clue_given(self):
         self.clue_given = True 
 
 
 class GameGenerator: # Max
     def __init__(self,possible_words: List[str]) -> None:
+        self.possible_words = possible_words
         self.game_words = []
         self.game_manager = None
         self.game_ui_creator = None
@@ -142,41 +163,38 @@ class GameGenerator: # Max
         #self.vector_model = VectorModel(vector_dict)
 
     def generate_words(self, words_n: int=25) -> List[GameWord]:
+        possible_words = self.possible_words.copy()
+        self.game_words.clear()
         for i in range(words_n):
-            word_name = "Test"
-
-            # TODO: get random word name from pool
-
-            newWord = GameWord(word_name)
-            self.game_words.append(newWord)
+            print(i)
+            index = random.randrange(len(possible_words))            
+            game_word = GameWord(possible_words[index],-1)
+            self.game_words.append(game_word)   
+            print(possible_words[index])        
+            possible_words.pop(index)
+            
+        print(possible_words)
+            
         return self.game_words
-
 
     def assign_belongings(self, words: List[GameWord], bomb_n: int = 1, teamA_n: int = 9, teamB_n: int = 8) -> List[GameWord]:
         neutral_words_n = len(words) - bomb_n - teamA_n - teamB_n
-        for word in words:
-            correct_belonging_found = False
-            while not correct_belonging_found:
-                belonging = randrange(4)
-                if (belonging == 0 and bomb_n > 0):
-                    bomb_n -= 1
-                    correct_belonging_found = True
-                    word.belonging = belonging
-                if (belonging == 1 and teamA_n > 0):
-                    teamA_n -= 1
-                    correct_belonging_found = True
-                    word.belonging = belonging
-                if (belonging == 2 and teamB_n > 0):
-                    teamB_n -= 1
-                    correct_belonging_found = True
-                    word.belonging = belonging
-                if (belonging == 3 and neutral_words_n > 0):
-                    neutral_words_n -= 1
-                    correct_belonging_found = True
-                    word.belonging = belonging
+        game_words_copy = self.game_words.copy()
 
-        return words
+        def assign_belonging(amount,belonging,remaining_words):
+            for i in range(amount):
+                index = random.randrange(len(remaining_words))
+                remaining_words[index].belonging = belonging
+                remaining_words.pop(index)
+            return remaining_words
+            
 
+        game_words_copy = assign_belonging(bomb_n,0,game_words_copy)
+        game_words_copy = assign_belonging(teamA_n,1,game_words_copy)
+        game_words_copy = assign_belonging(teamB_n,2,game_words_copy)
+        game_words_copy = assign_belonging(neutral_words_n,3,game_words_copy)
+
+        return self.game_words
 
 
     def create_clue_giver_bot(self):
@@ -211,10 +229,31 @@ class ClueGiverBot: # Florian
             game_word.store_most_similar_words(self.vector_model.most_similar(game_word.word,self.similar_word_cutoff))
     
     def get_shared_similar_words(self):
-        pass 
-
+        for i in range(self.game_words):
+            word = self.game_words[i]
+            for similar_word in word.most_similar_words:
+                clue_word = None
+                for j in range(i+1,len(self.game_words)):
+                    compare_word = self.game_words[j]
+                    for possible_clue in compare_word.most_similar_words:
+                        if similar_word == possible_clue:
+                            if clue_word is None:
+                                clue_scores = []
+                                clue_scores.append((word,self.vector_model.cosine_similarity(self.vector_model.embed(word.word),self.vector_model.embed(similar_word))))
+                                clue_scores.append((compare_word,self.vector_model.cosine_similarity(self.vector_model.embed(compare_word.word),self.vector_model.embed(possible_clue))))
+                                clue_word = ClueWord(possible_clue,clue_scores)    
+                                self.possible_clues.append(clue_word)                            
+                            else:
+                                clue_word.scores.append((compare_word,self.vector_model.cosine_similarity(self.vector_model.embed(compare_word.word),self.vector_model.embed(possible_clue))))
+    
     def get_best_clue(self)->ClueWord: 
-        pass 
+        if len(self.possible_clues>0):
+            self.possible_clues[0].get_clue_score()
+            best_clue = self.possible_clues[0]
+        for clue_word in self.possible_clues:
+            if clue_word.get_clue_score() > best_clue.clue_score:
+                best_clue = clue_word
+        return best_clue
     
     def give_clue(self,clue:ClueWord):
         pass 
@@ -297,6 +336,24 @@ class WordButton: # Florian
             self.draw_color = word_button_color_neutral
         self.game_word.reveal_belonging()
 
+class ClueInput:
+    def __init__(self,pos_x:int,pos_y:int,player_is_guesser:bool) -> None:
+        self.pos_x = pos_x
+        self.pos_y = pos_y
+        self.player_is_guesser = player_is_guesser
+        self.rect = pygame.Rect(pos_x,pos_y,clue_word_size[0],clue_word_size[1])
+        self.input_enabled = False
+        self.draw(win)
+
+    def draw(self,win):
+        pygame.draw.rect(win,clue_color,self.rect,border_radius=10)
+        pygame.draw.rect(win,clue_frame_color,self.rect,4,border_radius=10)
+        text_surface = codenames_font.render('Input',True,clue_font_color)
+        text_rect = text_surface.get_rect(center=(self.rect[0]+clue_word_size[0]/2,self.rect[1]+clue_word_size[1]/2))
+        win.blit(text_surface,(text_rect))
+
+    
+
 class GameManager: # Florian
     def __init__(self) -> None:
         self.game_ui_creator = None
@@ -323,17 +380,21 @@ class GameUiCreator: # Florian
         current_row = 0
         current_col = 0
         space_x = (window_size[0] - (self.words_per_row*word_button_size[0])) / (self.words_per_row + 1)
-        space_y = (window_size[1] - (self.words_per_col*word_button_size[1])) / (self.words_per_col + 1)
+        space_y = (window_size[1] - 2*clue_word_size[1] - (self.words_per_col*word_button_size[1])) / (self.words_per_col + 1)
         for game_word in self.game_words:
             pos_x = (current_col+1)*space_x + current_col*word_button_size[0]
             pos_y = (current_row+1)*space_y + current_row*word_button_size[1]
             word_button = WordButton(game_word,pos_x,pos_y,self.player_is_guesser,self.game_manager)
             self.word_buttons.append(word_button)
-            if current_col >= self.words_per_row:
+            if current_col >= self.words_per_row-1:
                 current_row += 1
                 current_col = 0
             else: 
                 current_col += 1
+        clue_input_x = space_x
+        clue_input_y = pos_y + word_button_size[1] + 2*space_y
+        self.clue_input = ClueInput(clue_input_x,clue_input_y,self.player_is_guesser)
+        
              
     def redraw_game_window(self):
         if self.bg != None:
@@ -343,6 +404,8 @@ class GameUiCreator: # Florian
         
         for word_button in self.word_buttons:
             word_button.draw(win)
+
+        self.clue_input.draw(win)
         pygame.display.update()
     
     
@@ -418,9 +481,12 @@ if __name__ == "__main__":
 
     game_words = []
     for word in ['Tomato','Bench','Hair','Sand','Apple','Uniform','Jacket','Present','Box','Baseball','Orange','Majority','Window','Gun','Kite','Bowl','Castle','Mars','Material','Keyboard','Pocket','Phone','Discussion','Song','Pasta','Chimney','Stone','Treehouse','Coffee']:
-        belonging = random.randint(0,3)
-        game_words.append(GameWord(word,belonging))
+        #belonging = random.randint(0,3)
+        game_words.append(word)
 
+    game_generator = GameGenerator(game_words)
+    game_words = game_generator.generate_words(25)
+    game_words = game_generator.assign_belongings(game_words)
     game_manager = GameManager()
     game_ui_creator = GameUiCreator(game_words,True,game_manager)
     # main loop
