@@ -16,6 +16,7 @@ pygame.init()
 pygame.font.init()
 
 codenames_font = pygame.font.SysFont('Calibri',35)
+header_font = pygame.font.SysFont('Calibri',80)
 # --- GLOBAL VARIABLES
 # window
 window_size = (1200,960)
@@ -34,17 +35,42 @@ font_color_bomb = (200,200,200)
 # clue input
 clue_word_size = (500,element_height)
 clue_amount_size = (150,element_height)
+clue_send_btn_size = (250,element_height)
 clue_color = (200,240,200)
 clue_frame_color = (70,220,40)
 clue_font_color = (150,150,150)
+clue_send_btn_font_color = (255,255,255)
 # game text 
 game_text_size = (window_size[0],element_height)
 
 # variables
 player_typing = False 
 
-class VectorModel: # Max
-    
+class MainMenu:
+    def __init__(self) -> None:
+        self.bg = None
+        self.header_rect = pygame.Rect(0,0,window_size[0],2*element_height)
+
+    def create_main_menu(self):
+        pass
+
+    def put_text(self,text:str,rect,font = codenames_font,text_color = font_color):
+        text_surface = font.render(text,True,text_color)
+        text_rect = text_surface.get_rect(center=(rect[0]+rect[2]/2,rect[1]+rect[3]/2))
+        win.blit(text_surface,(text_rect))
+
+    def draw(self,win):
+        self.put_text("Main Menu",self.header_rect,font = header_font)
+
+    def redraw_game_window(self):        
+        if self.bg != None:
+            win.blit(self.bg,(0,0))
+        else:
+            win.fill(window_bg_color)
+        self.draw(win)
+        pygame.display.update()   
+
+class VectorModel: # Max    
     def __init__(self, vector_dict: Dict[str, np.ndarray]):
         # YOUR CODE HERE
         self.vector_dict = vector_dict
@@ -194,8 +220,7 @@ class GameGenerator: # Max
                 index = random.randrange(len(remaining_words))
                 remaining_words[index].belonging = belonging
                 remaining_words.pop(index)
-            return remaining_words
-            
+            return remaining_words            
 
         game_words_copy = assign_belonging(bomb_n,0,game_words_copy)
         game_words_copy = assign_belonging(teamA_n,1,game_words_copy)
@@ -345,68 +370,172 @@ class WordButton: # Florian
         self.game_word.reveal_belonging()
 
 class ClueInput:
-    def __init__(self,pos_x_clue:int,pos_y_clue:int,pos_x_amount:int,pos_y_amount:int) -> None:        
+    def __init__(self,pos_x_clue:int,pos_y_clue:int,pos_x_amount:int,pos_y_amount:int, pos_x_send:int, pos_y_send:int) -> None:    
         self.rect_clue = pygame.Rect(pos_x_clue,pos_y_clue,clue_word_size[0],clue_word_size[1])
         self.rect_amount = pygame.Rect(pos_x_amount,pos_y_amount,clue_amount_size[0],clue_amount_size[1])
+        self.rect_send_btn = pygame.Rect(pos_x_send,pos_y_send,clue_send_btn_size[0],clue_send_btn_size[1])
         self.input_enabled = True
         self.clue_text = "Enter a Clue."
         self.amount_text = "1"
-        self.draw_input(win)
-        self.draw_amount(win)
+        self.clue_input_active = False 
+        self.amount_input_active = False
+        self.clue_input_init = False
+        self.amount_input_init = False
+        self.clue_entered = False 
+        self.amount_entered = False 
+        self.send_btn_active = False         
+        self.flash_counter = 0
+        self.flash_interval = 20
+        self.draw(win)
 
-    def clicked(self):
+    def clue_clicked(self):
         global player_typing
         if self.input_enabled:
-            self.clue_text = ''
+            if not self.clue_input_init:
+                self.clue_text = ''
             player_typing = True
+            self.clue_input_active = True
+            self.amount_input_active = False             
+    
+    def amount_clicked(self):
+        global player_typing
+        if self.input_enabled:
+            if not self.amount_input_init:
+                self.amount_text = ''
+            player_typing = True 
+            self.clue_input_active = False
+            self.amount_input_active = True 
 
-    def put_clue_text(self,text:str,text_color = clue_font_color):
+    def put_text(self,text:str,rect,text_color = clue_font_color):
         text_surface = codenames_font.render(text,True,text_color)
-        text_rect = text_surface.get_rect(center=(self.rect_clue[0]+clue_word_size[0]/2,self.rect_clue[1]+clue_word_size[1]/2))
+        text_rect = text_surface.get_rect(center=(rect[0]+rect[2]/2,rect[1]+rect[3]/2))
         win.blit(text_surface,(text_rect))
 
     def type(self,event):
         global player_typing
-        if player_typing:            
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    player_typing = False
-                elif event.key == pygame.K_BACKSPACE:
-                    self.clue_text = self.clue_text[:-1]
-                else:
-                    self.clue_text += event.unicode    
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                player_typing = False
+                if self.clue_input_active and self.clue_input_init:
+                    self.clue_entered = True
+                elif self.amount_input_active and self.amount_input_init:
+                    self.amount_entered = True
+                self.amount_input_active = False
+                self.clue_input_active = False
+            elif self.clue_input_active: 
+                    # player giving clue
+                    if event.key == pygame.K_BACKSPACE:
+                        self.clue_text = self.clue_text[:-1]
+                        if self.clue_text == '':
+                            self.clue_input_init = False 
+                    elif event.key == pygame.K_TAB:
+                        if self.clue_input_init:
+                            self.clue_entered = True 
+                        self.amount_clicked()
+                    elif event.unicode.isalpha():
+                        if not self.clue_input_init:
+                            self.clue_text = ''
+                            self.clue_input_init = True
+                        self.clue_text += event.unicode                        
+            elif self.amount_input_active:  
+                    # player giving amount
+                    if event.key == pygame.K_BACKSPACE:
+                        self.amount_text = self.amount_text[:-1]
+                        if self.amount_text == '':
+                            self.amount_input_init = False 
+                    elif event.key == pygame.K_TAB:
+                        if self.amount_input_init:
+                            self.amount_entered = True                         
+                    elif event.unicode.isdigit():
+                        if not self.amount_input_init:
+                            self.amount_text = ''
+                            self.amount_input_init = True
+                        self.amount_text += event.unicode    
 
+    def flash_input_signal(self):
+        self.flash_counter += 1
+        if self.flash_counter>=self.flash_interval:
+            if self.clue_input_active:
+                if self.clue_text == "":
+                    self.clue_text = "I"
+                elif self.clue_text == "I":
+                    self.clue_text = ""
+            if self.amount_input_active:
+                if self.amount_text == "":
+                    self.amount_text = "I"
+                elif self.amount_text == "I":
+                    self.amount_text = ""
+            self.flash_counter = 0
 
-    def draw_input(self,win):        
+    def check_mouse(self):
+        global player_typing
+        if pygame.mouse.get_pressed()[0] == 1:
+            pos = pygame.mouse.get_pos()
+            if self.rect_clue.collidepoint(pos):
+                self.clue_clicked()
+            elif self.rect_amount.collidepoint(pos):                
+                self.amount_clicked()
+            elif self.rect_send_btn.collidepoint(pos) and self.send_btn_active:
+                self.send_clue()
+            else:            
+                if self.clue_input_active:
+                    if not self.clue_input_init:
+                        self.clue_text = ''      
+                    else:
+                        self.clue_entered = True      
+                if self.amount_input_active:
+                    if not self.amount_input_init:
+                        self.amount_text = ''
+                    else:
+                        self.amount_entered = True 
+                self.clue_input_active = False 
+                self.amount_input_active = False 
+                player_typing = False
+                self.flash_counter = 0
+
+    def send_clue(self):
+        pass 
+
+    def draw(self,win):    
+        global player_typing    
+        # clue input
         pygame.draw.rect(win,clue_color,self.rect_clue,border_radius=10)
         pygame.draw.rect(win,clue_frame_color,self.rect_clue,4,border_radius=10)
-        self.put_clue_text(self.clue_text)
-
-        pos = pygame.mouse.get_pos()
-        if self.rect_clue.collidepoint(pos):
-                # mouseover                 
-                if pygame.mouse.get_pressed()[0] == 1:
-                    # clicked 
-                    self.clicked()
-                
-        
-    def draw_amount(self,win):        
+        if not self.clue_input_init and self.clue_input_active:
+            self.flash_input_signal()
+        self.put_text(self.clue_text,self.rect_clue)
+        # amount input
         pygame.draw.rect(win,clue_color,self.rect_amount,border_radius=10)
         pygame.draw.rect(win,clue_frame_color,self.rect_amount,4,border_radius=10)
-        text_surface = codenames_font.render('1',True,clue_font_color)
-        text_rect = text_surface.get_rect(center=(self.rect_amount[0]+clue_amount_size[0]/2,self.rect_amount[1]+clue_amount_size[1]/2))
-        win.blit(text_surface,(text_rect))
+        if not self.amount_input_init and self.amount_input_active:
+            self.flash_input_signal()
+        self.put_text(self.amount_text,self.rect_amount)
+        # send button
+        if self.clue_entered and self.amount_entered:
+            self.send_btn_active = True 
+        else:
+            self.send_btn_active = False 
+        if self.send_btn_active:
+            pygame.draw.rect(win,clue_frame_color,self.rect_send_btn,border_radius=10)
+            self.put_text("Send Clue",self.rect_send_btn,clue_send_btn_font_color)
+        # check mouse action
+        self.check_mouse()
+        
+        
+        
 
 class GameText:
-    def __init__(self,pos_x:int,pos_y:int) -> None:
+    def __init__(self,pos_x:int,pos_y:int,default_text:str = '',text_color = font_color) -> None:
         self.pos_x = pos_x
         self.pos_y = pos_y
+        self.text = default_text
+        self.font_color = text_color
         self.rect = pygame.Rect(pos_x,pos_y,game_text_size[0],game_text_size[1])
         self.show_text = False 
         self.draw(win)
         
     def draw(self,win):        
-        text_surface = codenames_font.render('Please provide a clue.',True,font_color)
+        text_surface = codenames_font.render(self.text,True,self.font_color)
         text_rect = text_surface.get_rect(center=(self.rect[0]+game_text_size[0]/2,self.rect[1]+game_text_size[1]/2))
         win.blit(text_surface,(text_rect))
 
@@ -449,9 +578,11 @@ class GameUiCreator: # Florian
             else: 
                 current_col += 1        
         game_text_y = pos_y + word_button_size[1] + space_y
-        self.game_text = GameText(space_x,game_text_y)
+        self.game_text = GameText(space_x,game_text_y,'Please provide a clue.')
+        clue_input_x = 2*space_x + clue_word_size[0]
+        clue_send_btn_x = space_x + clue_input_x + clue_amount_size[0]
         clue_input_y = game_text_y + clue_word_size[1] + space_y
-        self.clue_input = ClueInput(space_x,clue_input_y,2*space_x + clue_word_size[0],clue_input_y)
+        self.clue_input = ClueInput(space_x,clue_input_y,clue_input_x,clue_input_y,clue_send_btn_x,clue_input_y)
              
     def redraw_game_window(self):
         if self.bg != None:
@@ -462,11 +593,9 @@ class GameUiCreator: # Florian
         for word_button in self.word_buttons:
             word_button.draw(win)
 
-        self.clue_input.draw_input(win)
-        self.clue_input.draw_amount(win)
+        self.clue_input.draw(win)
         self.game_text.draw(win)
-        pygame.display.update()
-    
+        pygame.display.update()   
     
 
     def show_clue_from_bot(self,clue:Tuple[str,int]):
@@ -548,8 +677,16 @@ if __name__ == "__main__":
     game_words = game_generator.assign_belongings(game_words)
     game_manager = GameManager()
     game_ui_creator = GameUiCreator(game_words,True,game_manager)
+    main_menu = MainMenu()
     # main loop
-    run = True
+    main_menu_running = True 
+    while main_menu_running:
+        clock.tick(30)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                main_menu_running = False                        
+        main_menu.redraw_game_window()
+    run = False 
     while run:
         clock.tick(30)
         for event in pygame.event.get():
