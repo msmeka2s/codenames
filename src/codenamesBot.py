@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple
 from random import randint, randrange
 
 from pygame import key
+from pygame.draw import rect
 from pygame.version import PygameVersion
 
 sys.path.append(os.path.join(sys.path[0],'..','lib'))
@@ -21,46 +22,144 @@ header_font = pygame.font.SysFont('Calibri',80)
 # window
 window_size = (1200,960)
 window_bg_color = (221,207,180)
+# standard values
 element_height = 110
+standard_btn_color = (150,150,150)
+standard_font_color = (0,0,0)
 # word button
 word_button_size = (200,element_height)
-word_button_color_unknown = (150,150,150)
 word_button_color_hover = (200,200,200)
 word_button_color_neutral = (250,250,150)
 word_button_color_teamA = (232,93,100)
 word_button_color_teamB = (104,168,232)
 word_button_color_bomb = (0,0,0)
-font_color = (0,0,0)
 font_color_bomb = (200,200,200)
 # clue input
 clue_word_size = (500,element_height)
 clue_amount_size = (150,element_height)
 clue_send_btn_size = (250,element_height)
 clue_color = (200,240,200)
-clue_frame_color = (70,220,40)
+clue_frame_color = (130,220,80)
 clue_font_color = (150,150,150)
 clue_send_btn_font_color = (255,255,255)
 # game text 
 game_text_size = (window_size[0],element_height)
+# menu button colors
+clue_giver_color = (220,140,110)
+guesser_color = (170,110,230)
+disabled_color = (200,200,180)
+disabled_font_color = (190,190,170)
 
 # variables
 player_typing = False 
 
+class MenuButton:
+    def __init__(self,main_menu_object,rect:pygame.rect,text:str,interactable:bool,font=codenames_font,font_color=standard_font_color,bg_color=standard_btn_color,hover_color=None,active_color=None) -> None:
+        self.rect = rect
+        self.text = text
+        self.interactable = interactable
+        self.font = font
+        self.font_color = font_color
+        self.bg_color = bg_color
+        self.draw_color = bg_color
+        self.hover_color = hover_color
+        self.active_color = active_color
+        self.main_menu = main_menu_object
+        print(self.main_menu)
+        self.active = False
+
+    def check_mouse(self):
+        pos = pygame.mouse.get_pos()
+        if self.rect.collidepoint(pos):
+            # hover 
+            if self.hover_color is not None and not self.active:
+                self.draw_color = self.hover_color
+            if pygame.mouse.get_pressed()[0]:
+                self.main_menu.button_callback(self)                
+        else:
+            if not self.active:
+                self.draw_color = self.bg_color
+
+    def set_active(self,active):
+        self.active = active
+        if active:
+            if self.active_color is not None:
+                self.draw_color = self.active_color
+        else:
+            self.draw_color = self.bg_color
+
+    def draw(self,win):
+        if self.interactable:            
+            self.check_mouse()
+        
+        pygame.draw.rect(win,self.draw_color,self.rect,border_radius=10)
+        text_surface = self.font.render(self.text,True,self.font_color)
+        text_rect = text_surface.get_rect(center=(self.rect[0]+self.rect[2]/2,self.rect[1]+self.rect[3]/2))
+        win.blit(text_surface,(text_rect))
+
+
 class MainMenu:
     def __init__(self) -> None:
         self.bg = None
+        # Choose Team 
         self.header_rect = pygame.Rect(0,0,window_size[0],2*element_height)
-
+        self.team_text_rect = pygame.Rect(0,self.header_rect[3],window_size[0],element_height)
+        self.team_a_rect = pygame.Rect(window_size[0]/2 - 3/2 * word_button_size[0],self.team_text_rect[1]+self.team_text_rect[3],word_button_size[0],word_button_size[1])
+        self.team_a_btn = MenuButton(self,self.team_a_rect,"Team Red",True,hover_color=word_button_color_hover,active_color=word_button_color_teamA)
+        self.team_b_rect = pygame.Rect(window_size[0]/2 + 1/2 * word_button_size[0],self.team_text_rect[1]+self.team_text_rect[3],word_button_size[0],word_button_size[1])
+        self.team_b_btn = MenuButton(self,self.team_b_rect,"Team Blue",True,hover_color=word_button_color_hover,active_color=word_button_color_teamB)
+        # Choose Role
+        self.role_text_rect = pygame.Rect(0,self.team_a_rect[1]+self.team_a_rect[3],window_size[0],element_height)
+        self.clue_giver_rect = pygame.Rect(window_size[0]/2 - 3/2 * word_button_size[0],self.role_text_rect[1]+self.role_text_rect[3],word_button_size[0],word_button_size[1])
+        self.clue_giver_btn = MenuButton(self,self.clue_giver_rect,"Clue Giver",True,hover_color=word_button_color_hover,active_color=clue_giver_color)
+        self.guesser_rect = pygame.Rect(window_size[0]/2 + 1/2 * word_button_size[0],self.role_text_rect[1]+self.role_text_rect[3],word_button_size[0],word_button_size[1])
+        self.guesser_btn = MenuButton(self,self.guesser_rect,"Guesser",True,hover_color=word_button_color_hover,active_color=guesser_color)
+        # Start Game
+        self.start_game_rect = pygame.Rect(window_size[0]/2 - word_button_size[0]/2,self.clue_giver_rect[1]+self.clue_giver_rect[3]+element_height,word_button_size[0],word_button_size[1])
+        self.start_game_btn = MenuButton(self,self.start_game_rect,"Start Game",False,bg_color=disabled_color,font_color=disabled_font_color,active_color=clue_frame_color)
+        self.chosen_team = None
+        self.chosen_role = None
+       
     def create_main_menu(self):
         pass
 
-    def put_text(self,text:str,rect,font = codenames_font,text_color = font_color):
+    def put_text(self,text:str,rect,font = codenames_font,text_color = standard_font_color):
         text_surface = font.render(text,True,text_color)
         text_rect = text_surface.get_rect(center=(rect[0]+rect[2]/2,rect[1]+rect[3]/2))
         win.blit(text_surface,(text_rect))
 
+    def button_callback(self,button):
+        if button == self.team_a_btn:
+            self.chosen_team = "team_a"
+            self.team_a_btn.set_active(True)
+            self.team_b_btn.set_active(False)
+        elif button == self.team_b_btn:
+            self.chosen_team = "team_b"
+            self.team_a_btn.set_active(False)
+            self.team_b_btn.set_active(True)
+        elif button == self.clue_giver_btn:
+            self.chosen_role = "clue_giver"
+            self.clue_giver_btn.set_active(True)
+            self.guesser_btn.set_active(False)
+        elif button == self.guesser_btn:
+            self.chosen_role = "guesser"
+            self.clue_giver_btn.set_active(False)
+            self.guesser_btn.set_active(True)
+        if self.chosen_team is not None and self.chosen_role is not None:
+            self.start_game_btn.interactable = True
+            self.start_game_btn.set_active(True)
+            self.start_game_btn.font_color = (255,255,255)
+
+
     def draw(self,win):
         self.put_text("Main Menu",self.header_rect,font = header_font)
+        self.put_text("Choose Your Team", self.team_text_rect)
+        self.team_a_btn.draw(win)
+        self.team_b_btn.draw(win)
+        self.put_text("Choose Your Role", self.role_text_rect)
+        self.clue_giver_btn.draw(win)
+        self.guesser_btn.draw(win)
+        self.start_game_btn.draw(win)
 
     def redraw_game_window(self):        
         if self.bg != None:
@@ -328,8 +427,8 @@ class WordButton: # Florian
         self.player_is_guesser = player_is_guesser
         self.game_manager = game_manager        
         self.rect = pygame.Rect(pos_x,pos_y,word_button_size[0],word_button_size[1])
-        self.draw_color = word_button_color_unknown
-        self.font_color = font_color
+        self.draw_color = standard_btn_color
+        self.font_color = standard_font_color
         self.draw(win)
 
     def draw(self,win):        
@@ -346,7 +445,7 @@ class WordButton: # Florian
                     # clicked 
                     self.clicked()
             else:
-                self.draw_color = word_button_color_unknown
+                self.draw_color = standard_btn_color
         
         # draw rectangle and text 
         pygame.draw.rect(win,self.draw_color,self.rect,border_radius=10)
@@ -525,7 +624,7 @@ class ClueInput:
         
 
 class GameText:
-    def __init__(self,pos_x:int,pos_y:int,default_text:str = '',text_color = font_color) -> None:
+    def __init__(self,pos_x:int,pos_y:int,default_text:str = '',text_color = standard_font_color) -> None:
         self.pos_x = pos_x
         self.pos_y = pos_y
         self.text = default_text
