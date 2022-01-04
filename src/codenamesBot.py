@@ -1,9 +1,11 @@
 import sys 
 import os
 import math
+import time
 import random
 import numpy as np
 import pickle 
+import threading 
 from typing import Dict, List, Tuple
 from random import randint, randrange
 
@@ -35,6 +37,7 @@ word_button_color_teamB = (104,168,232)
 word_button_color_bomb = (0,0,0)
 font_color_bomb = (200,200,200)
 font_color_disabled = (110,100,90)
+word_button_color_blink = (252,132,3)
 # clue input
 clue_word_size = (500,element_height)
 clue_amount_size = (150,element_height)
@@ -42,6 +45,7 @@ clue_send_btn_size = (250,element_height)
 clue_color = (200,240,200)
 clue_frame_color = (130,220,80)
 clue_font_color = (150,150,150)
+clue_sent_font_color = (0,0,0)
 clue_send_btn_font_color = (255,255,255)
 # game text 
 game_text_size = (window_size[0],element_height)
@@ -75,7 +79,7 @@ class ButtonElement:
         self.blink_counter = 0
         self.blink_interval = 10
         self.blink_amount = 7
-        self.blink_step = 0
+        self.blink_step = 0        
 
     def check_mouse(self):
         pos = pygame.mouse.get_pos()
@@ -104,7 +108,7 @@ class ButtonElement:
         disabled_color = []
         color = self.active_color if self.active else self.bg_color
         for i in range(3):            
-            disabled_color.append((color[i] + window_bg_color[i])/2)
+            disabled_color.append((color[i] + 2*window_bg_color[i])/3)
         self.draw_color = tuple(disabled_color)             
         self.font_color = font_color_disabled
         self.callback_object.button_disabled()
@@ -114,9 +118,9 @@ class ButtonElement:
         if self.blink_counter >= self.blink_interval:
             self.blink_counter = 0
             self.blink_step += 1
-            if self.blink_step >= self.blink_amount:
-                self.disable()
+            if self.blink_step >= self.blink_amount:                
                 self.blinking = False
+                self.disable()                
             else:
                 if self.blink_step % 2 == 0:
                     if self.active:
@@ -124,7 +128,7 @@ class ButtonElement:
                     else:
                         self.draw_color = self.bg_color
                 else:
-                    self.draw_color = word_button_color_hover
+                    self.draw_color = word_button_color_blink
                 
 
     def start_blinking(self):
@@ -141,8 +145,12 @@ class ButtonElement:
         
         pygame.draw.rect(win,self.draw_color,self.rect,border_radius=10)
         if self.draw_frame and not self.disabled:
-            frame_color = tuple(col -30 for col in self.draw_color)
-            pygame.draw.rect(win,frame_color,self.rect,6,border_radius=10)
+            frame_color = []
+            for i in range(3):
+                col = self.draw_color[i] - 30 if self.draw_color[i] - 30 > 0 else 0
+                frame_color.append(col)
+            frame_color = tuple(frame_color)
+            pygame.draw.rect(win,frame_color,self.rect,border_radius=10)
         text_surface = self.font.render(self.text,True,self.font_color)
         text_rect = text_surface.get_rect(center=(self.rect[0]+self.rect[2]/2,self.rect[1]+self.rect[3]/2))
         win.blit(text_surface,(text_rect))
@@ -417,7 +425,7 @@ class GameGenerator: # Max
         self.game_manager.game_ui_creator = self.game_ui_creator
 
     def start_game(self):
-        self.game_manager.start_game()
+        self.game_manager.game_flow_thread.start()
 
 class ClueGiverBot: # Florian
     def __init__(self, vector_model, team: int, game_words: List[GameWord], similar_word_cutoff: int=200) -> None:
@@ -500,6 +508,7 @@ class WordButton: # Florian
         self.font_color = standard_font_color
         self.get_active_color()        
         self.button = ButtonElement(self,self.rect,self.game_word.word,False,font_color=self.font_color,hover_color=word_button_color_hover,active_color=self.active_color,active_font_color=self.active_font_color)
+        self.button_blinked_finished_event = threading.Event()
 
     def draw(self,win):        
         self.button.draw(win)
@@ -513,12 +522,13 @@ class WordButton: # Florian
     def button_callback(self,button):
         self.get_active_color() 
 
-    def button_disabled(self):
-        self.game_manager.handle_guess(self.game_word)
+    def button_disabled(self):  
+        self.game_manager.guessed_word = self.game_word       
+        self.button_blinked_finished_event.set()
 
     def guess_word(self):
         self.button.start_blinking()
-        self.game_word.reveal_belonging()
+        self.game_word.reveal_belonging()        
 
     def get_active_color(self):
         if self.game_word.belonging == 0:
@@ -555,6 +565,7 @@ class ClueInput:
         self.clue_sent = False       
         self.flash_counter = 0
         self.flash_interval = 20
+        self.input_provided_event = threading.Event()
         self.draw(win)
 
     def clue_clicked(self):
@@ -639,7 +650,7 @@ class ClueInput:
     def check_mouse(self):
         global player_typing
         pos = pygame.mouse.get_pos()
-        if self.rect_send_btn.collidepoint(pos) and self.send_btn_active:
+        if self.rect_send_btn.collidepoint(pos) and self.send_btn_active and not self.clue_sent:
             if pygame.mouse.get_pressed()[0] == 1:
                 self.send_clue()
             else:
@@ -677,22 +688,39 @@ class ClueInput:
         except:
             self.game_manager.raise_invalid_input()
             return        
-        self.game_manager.handle_player_clue(clue) 
+        self.game_manager.player_clue = clue 
+        self.input_provided_event.set()        
+
+    def reset_input(self):
+        self.clue_text = 'Enter a Clue.'
+        self.amount_text = '1'
+        self.clue_input_init = False 
+        self.amount_input_init = False 
+        self.clue_entered = False 
+        self.amount_entered = False 
+        self.send_btn_active = False 
+        self.input_enabled = False
+        self.clue_sent = False 
 
     def draw(self,win):    
-        global player_typing    
-        # clue input
-        pygame.draw.rect(win,clue_color,self.rect_clue,border_radius=10)
-        pygame.draw.rect(win,clue_frame_color,self.rect_clue,4,border_radius=10)
-        if not self.clue_input_init and self.clue_input_active:
-            self.flash_input_signal()
-        self.put_text(self.clue_text,self.rect_clue)
-        # amount input
-        pygame.draw.rect(win,clue_color,self.rect_amount,border_radius=10)
-        pygame.draw.rect(win,clue_frame_color,self.rect_amount,4,border_radius=10)
-        if not self.amount_input_init and self.amount_input_active:
-            self.flash_input_signal()
-        self.put_text(self.amount_text,self.rect_amount)
+        global player_typing      
+        if not self.clue_sent:
+            # clue input
+            pygame.draw.rect(win,clue_color,self.rect_clue,border_radius=10)
+            pygame.draw.rect(win,clue_frame_color,self.rect_clue,4,border_radius=10)
+            if not self.clue_input_init and self.clue_input_active:
+                self.flash_input_signal()
+            self.put_text(self.clue_text,self.rect_clue)
+            
+            # amount input        
+            pygame.draw.rect(win,clue_color,self.rect_amount,border_radius=10)
+            pygame.draw.rect(win,clue_frame_color,self.rect_amount,4,border_radius=10)
+            if not self.amount_input_init and self.amount_input_active:
+                self.flash_input_signal()
+            self.put_text(self.amount_text,self.rect_amount)
+        else:
+            self.put_text(self.clue_text,self.rect_clue,clue_sent_font_color)
+            self.put_text(self.amount_text,self.rect_amount,clue_sent_font_color)
         # send button
         if self.clue_entered and self.amount_entered and not self.clue_sent:
             self.send_btn_active = True 
@@ -712,9 +740,8 @@ class GameText:
         self.font_color = text_color
         self.rect = pygame.Rect(pos_x,pos_y,game_text_size[0],game_text_size[1])
         self.show_text = False 
-        self.type_counter = 0
-        self.type_interval = 2
-        self.typing = False
+        self.type_interval = 0.05
+        self.type_event = threading.Event()
         self.type_text = ''
         self.draw(win)
 
@@ -722,24 +749,21 @@ class GameText:
         text_len = len(self.text) + 1
         self.text = self.type_text[0:text_len]
         if self.text == self.type_text:
-            self.type_counter = 0
             self.typing = False
+            self.type_event.set()            
+        else:
+            threading.Timer(self.type_interval,self.type,[]).start()
         
-    def draw(self,win):        
-        if self.typing:
-            self.type_counter+=1
-            if self.type_counter>=self.type_interval:
-                self.type_counter = 0
-                self.type()
+    def draw(self,win):  
         text_surface = codenames_font.render(self.text,True,self.font_color)
         text_rect = text_surface.get_rect(center=(self.rect[0]+game_text_size[0]/2,self.rect[1]+game_text_size[1]/2))
         win.blit(text_surface,(text_rect))
 
     def set_text(self,text):
         self.type_text = text
-        self.type_counter = 0
         self.typing = True
         self.text = ''
+        self.type()
 
 class GameManager: # Florian
     def __init__(self) -> None:
@@ -853,71 +877,147 @@ class GameManager_PlayerIsClueGiver(GameManager): # Max
         self.player_team = player_team
         self.guesser_bot = guesser_bot
         self.game_ui_creator = None
+        self.active_team = 1
         self.player_clue = None
+        self.guesses_left = 0
+        self.guessed_word = None
         self.bot_thinking = False
         self.player_won = False 
         self.player_lost = False 
+        self.opponent_strength = 0.7
+        self.opponent_next_guess_prob = 0.6
+        self.game_flow_thread = threading.Thread(target=self.start_game,daemon=True)
         self.timer = 0
 
     def start_game(self):
-        self.ask_for_player_clue() 
+        self.start_turn()
+
+    def start_turn(self):
+        if self.active_team == self.player_team:
+            self.ask_for_player_clue() 
+        else: 
+            self.guesses_left = 5                        
+            guess = self.simulate_opponent_turn()
+            self.reveal_guessed_word(guess)            
     
-    def set_game_text(self,text):
+    def set_game_text(self,text,delay=1):
         self.game_ui_creator.game_text.set_text(text)
+        self.game_ui_creator.game_text.type_event.wait()
+        self.game_ui_creator.game_text.type_event.clear()
+        time.sleep(delay)
 
     def ask_for_player_clue(self):
-        self.set_game_text("Please enter a clue and the amount of words it refers to.")
+        self.set_game_text("Please enter a clue and the amount of words it refers to.",0)
         self.game_ui_creator.clue_input.input_enabled = True
+        self.game_ui_creator.clue_input.input_provided_event.wait()
+        self.game_ui_creator.clue_input.input_provided_event.clear()
+        self.handle_player_input()
 
-    def handle_player_clue(self,player_clue:Tuple[str,int]):
+    def handle_player_input(self):
         self.game_ui_creator.clue_input.input_enabled = False 
-        self.get_guess_from_bot(player_clue)       
+        self.guesses_left = self.player_clue[1]
+        self.pass_clue_to_bot()  
 
     def raise_invalid_input(self):
         self.set_game_text("Invalid input. Please try again.")
 
-    def get_guess_from_bot(self,player_clue):
-        self.player_clue = player_clue
+    def pass_clue_to_bot(self):
         self.set_game_text("Bot is thinking...")
-        self.timer = 0
-        self.bot_thinking = True
+        bot_think_timer = threading.Timer(1,self.get_guess_from_bot,[self.player_clue])
+        bot_think_timer.start()
+
+    def get_guess_from_bot(self,player_clue):        
+        guess = self.guesser_bot.take_guess(player_clue)
+        self.reveal_guessed_word(guess)
+
+    def reveal_guessed_word(self,guess):
+        guess_word_button = self.game_ui_creator.get_word_button_from_game_word(guess)
+        guess_word_button.guess_word()
+        guess_word_button.button_blinked_finished_event.wait()
+        guess_word_button.button_blinked_finished_event.clear()
+        self.handle_guess(self.guessed_word)        
 
     def handle_guess(self,game_word):
         if game_word.belonging == self.player_team:
-            self.set_game_text("The Bot guessed correctly!")
+            if self.active_team == self.player_team:
+                self.set_game_text("The Bot guessed correctly!")
+                if not self.check_for_game_end():
+                    self.guesses_left -= 1
+                    if self.guesses_left > 0:
+                        self.pass_clue_to_bot()
+                    else:
+                        self.end_turn()
+            else:
+                self.set_game_text("Your Opponent guessed one of your words!")
+                if not self.check_for_game_end():
+                    self.end_turn()
         elif game_word.belonging == GameWord.lookup_belonging("bomb"):
-            self.set_game_text("Oh no! The Bot guessed the forbidden Bomb Word!!")        
-            self.player_lost = True 
+            if self.active_team == self.player_team:
+                self.set_game_text("Oh no! The Bot guessed the forbidden Bomb Word!!")        
+                self.player_lost = True                 
+            else:
+                self.set_game_text("Your opponent guessed the forbidden Bomb Word!!")
+                self.player_won = True 
+            self.end_game()
         elif game_word.belonging == GameWord.lookup_belonging("neutral"):
-            self.set_game_text("The Bot guessed a Neutral Word.")
+            if self.active_team == self.player_team:
+                self.set_game_text("The Bot guessed a Neutral Word.")                
+            else: 
+                self.set_game_text("Your Opponent guessed a Neutral Word.")
+            self.end_turn()
         else:
-            self.set_game_text("Bad luck, the Bot guessed a Word from the other Team.")
+            if self.active_team == self.player_team:
+                self.set_game_text("Bad luck, the Bot guessed a Word from the other Team.")
+                if not self.check_for_game_end():
+                    self.end_turn()
+            else:
+                self.set_game_text("Your Opponent guessed correctly.")
+                if not self.check_for_game_end():
+                    if self.guesses_left > 0:
+                        guess = self.simulate_opponent_turn()
+                        self.reveal_guessed_word(guess)            
+                    else:
+                        self.end_turn()            
+
+    def simulate_opponent_turn(self):
+        self.guesses_left -= 1
+        self.set_game_text("Opponent is taking a guess.")
+        remaining_words = [game_word for game_word in self.game_words if not game_word.revealed]
+        opponent_words = [game_word for game_word in remaining_words if game_word.belonging == self.active_team]
+        other_words = [game_word for game_word in remaining_words if game_word.belonging == self.player_team or game_word.belonging == GameWord.lookup_belonging("neutral")]
         
-
-
+        if random.random() <= self.opponent_strength:
+            index = random.randrange(len(opponent_words))
+            guess = opponent_words[index]
+            if self.guesses_left > 0:
+                if random.random() > self.opponent_next_guess_prob:
+                    self.guesses_left = 0
+        else:
+            index = random.randrange(len(other_words))
+            guess = other_words[index]        
+        return guess 
+    
     def check_for_game_end(self) -> bool:
-        pass 
+        return False  
 
     def end_turn(self):
-        pass 
+        if self.active_team == self.player_team:
+            self.set_game_text("It is now your opponent's turn.")             
+        else: 
+            self.set_game_text("It is now your turn.")
+        if self.active_team == 1:
+                self.active_team = 2
+        else: 
+            self.active_team = 1
+        self.game_ui_creator.clue_input.reset_input()
+        self.start_turn()
+
 
     def end_game(self):
         pass 
 
     def tick(self):
         self.game_ui_creator.redraw_game_window()
-        
-        if self.bot_thinking:
-            self.timer += 1
-            if self.timer >= 100:
-                self.bot_thinking = False 
-                self.timer = 0
-                guess = self.guesser_bot.take_guess(self.player_clue)
-                guess_word_button = self.game_ui_creator.get_word_button_from_game_word(guess)
-                guess_word_button.guess_word()
-                
-
-
         
 
 if __name__ == "__main__":    
@@ -928,12 +1028,7 @@ if __name__ == "__main__":
     main_menu = MainMenu()
     # main loop
     main_menu_running = True 
-    while main_menu_running:
-        # TEST CONDITION: PLAYER IS TEAM A AND CLUE GIVER
-        main_menu.chosen_role = 'clue_giver'
-        main_menu.chosen_team = 'team_a'
-        main_menu.start_game = True 
-        # TEST CONDITION END 
+    while main_menu_running:        
         clock.tick(30)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -957,6 +1052,6 @@ if __name__ == "__main__":
                 run = False
             if player_typing:
                 if event.type == pygame.KEYDOWN:
-                    game_generator.game_ui_creator.clue_input.type(event) 
+                    game_generator.game_ui_creator.clue_input.type(event)
         game_generator.game_manager.tick()
 
