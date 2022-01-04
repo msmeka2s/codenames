@@ -10,6 +10,9 @@ import threading
 from typing import Dict, List, Tuple
 from random import randint, randrange
 
+import gensim.downloader as api
+from gensim.models import Word2Vec, FastText
+
 from pygame import key
 from pygame.draw import rect
 from pygame.version import PygameVersion
@@ -27,6 +30,26 @@ with open('../data/codenamesWords.txt') as f:
     lines = f.readlines()
     for line in lines:
         codenames_words.append(line.strip('\n'))
+
+# First 100,000,000 bytes of plain text from Wikipedia. Used for testing purposes; see wiki-english-* for proper full Wikipedia datasets.
+corpus = api.load('text8')
+
+# get word2vec model
+if os.path.isfile('models/word2vec.model'):
+    model_w2v = Word2Vec.load("models/word2vec.model")
+else:
+    model_w2v = Word2Vec(corpus)
+    model_w2v.save("models/word2vec.model")
+
+# get fasttext model
+if os.path.isfile('models/fasttext.model'):
+    model_ft = FastText.load("models/word2vec.model")
+else:
+    model_ft = FastText(corpus)
+    model_ft.save("models/fasttext.model")
+
+# Zum Testen
+# print(model_w2v.wv.most_similar('shower', topn=100))
 
 # window
 codenames_font = pygame.font.SysFont('Calibri',35)
