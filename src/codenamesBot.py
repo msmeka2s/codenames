@@ -1263,7 +1263,9 @@ if __name__ == "__main__":
         clock.tick(30)        
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                main_menu_running = False                        
+                main_menu_running = False   
+                run = False 
+                post_game_running = False                      
         main_menu.redraw_game_window()
         if main_menu.start_game:
             player_is_guesser = True if main_menu.chosen_role == 'guesser' else False 
@@ -1275,7 +1277,8 @@ if __name__ == "__main__":
         clock.tick(30)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                run = False
+                run = False                
+                post_game_running = False  
             if player_typing:
                 if event.type == pygame.KEYDOWN:
                     game_generator.game_ui_creator.clue_input.type(event)
