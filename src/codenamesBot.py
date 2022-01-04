@@ -30,7 +30,7 @@ with open('../data/codenamesWords.txt') as f:
 
 # window
 codenames_font = pygame.font.SysFont('Calibri',35)
-header_font = pygame.font.SysFont('Calibri',80)
+header_font = pygame.font.SysFont('Calibri',65)
 window_size = (1200,960)
 window_bg_color = (221,207,180)
 # standard values
@@ -60,7 +60,9 @@ clue_send_btn_font_color = (255,255,255)
 game_text_size = (window_size[0],element_height)
 # menu button colors
 clue_giver_color = (220,140,110)
-guesser_color = (170,110,230)
+guesser_color = (192,161,199)
+word2vec_color = (245,252,174)
+tfidf_color = (215,252,174)
 disabled_color = (200,200,180)
 disabled_font_color = (190,190,170)
 
@@ -173,7 +175,7 @@ class MainMenu:
     def __init__(self) -> None:
         self.bg = None
         # Choose Team 
-        self.header_rect = pygame.Rect(0,0,window_size[0],2*element_height)
+        self.header_rect = pygame.Rect(0,0,window_size[0],element_height)
         self.team_text_rect = pygame.Rect(0,self.header_rect[3],window_size[0],element_height)
         self.team_a_rect = pygame.Rect(window_size[0]/2 - 3/2 * word_button_size[0],self.team_text_rect[1]+self.team_text_rect[3],word_button_size[0],word_button_size[1])
         self.team_a_btn = ButtonElement(self,self.team_a_rect,"Team Red",True,hover_color=word_button_color_hover,active_color=word_button_color_teamA)
@@ -185,11 +187,18 @@ class MainMenu:
         self.clue_giver_btn = ButtonElement(self,self.clue_giver_rect,"Clue Giver",True,hover_color=word_button_color_hover,active_color=clue_giver_color)
         self.guesser_rect = pygame.Rect(window_size[0]/2 + 1/2 * word_button_size[0],self.role_text_rect[1]+self.role_text_rect[3],word_button_size[0],word_button_size[1])
         self.guesser_btn = ButtonElement(self,self.guesser_rect,"Guesser",True,hover_color=word_button_color_hover,active_color=guesser_color)
+        # Choose Vector Model
+        self.vector_model_text_rect = pygame.Rect(0,self.clue_giver_rect[1]+self.clue_giver_rect[3],window_size[0],element_height)
+        self.word2vec_rect = pygame.Rect(window_size[0]/2 - 3/2 * word_button_size[0],self.vector_model_text_rect[1]+self.vector_model_text_rect[3],word_button_size[0],word_button_size[1])
+        self.word2vec_btn = ButtonElement(self,self.word2vec_rect,"Word2Vec",True,hover_color=word_button_color_hover,active_color=word2vec_color)
+        self.tfidf_rect = pygame.Rect(window_size[0]/2 + 1/2 * word_button_size[0],self.vector_model_text_rect[1]+self.vector_model_text_rect[3],word_button_size[0],word_button_size[1])
+        self.tfidf_btn = ButtonElement(self,self.tfidf_rect,"tf-idf",True,hover_color=word_button_color_hover,active_color=tfidf_color)
         # Start Game
-        self.start_game_rect = pygame.Rect(window_size[0]/2 - word_button_size[0]/2,self.clue_giver_rect[1]+self.clue_giver_rect[3]+element_height,word_button_size[0],word_button_size[1])
+        self.start_game_rect = pygame.Rect(window_size[0]/2 - word_button_size[0]/2,self.word2vec_rect[1]+self.word2vec_rect[3]+element_height/2,word_button_size[0],word_button_size[1])
         self.start_game_btn = ButtonElement(self,self.start_game_rect,"Start Game",False,bg_color=disabled_color,font_color=disabled_font_color,active_color=clue_frame_color)
         self.chosen_team = None
         self.chosen_role = None
+        self.chosen_vector_model = None 
         self.start_game = False 
        
     def create_main_menu(self):
@@ -217,9 +226,17 @@ class MainMenu:
             self.chosen_role = "guesser"
             self.clue_giver_btn.set_active(False)
             self.guesser_btn.set_active(True)
+        elif button == self.word2vec_btn:
+            self.chosen_vector_model = "word2vec"
+            self.word2vec_btn.set_active(True)
+            self.tfidf_btn.set_active(False)
+        elif button == self.tfidf_btn:
+            self.chosen_vector_model = "tfidf"
+            self.word2vec_btn.set_active(False)
+            self.tfidf_btn.set_active(True)
         elif button == self.start_game_btn:
             self.start_game = True 
-        if self.chosen_team is not None and self.chosen_role is not None:
+        if self.chosen_team is not None and self.chosen_role is not None and self.chosen_vector_model is not None:
             self.start_game_btn.interactable = True
             self.start_game_btn.set_active(True)
             self.start_game_btn.font_color = (255,255,255)
@@ -233,6 +250,9 @@ class MainMenu:
         self.put_text("Choose Your Role", self.role_text_rect)
         self.clue_giver_btn.draw(win)
         self.guesser_btn.draw(win)
+        self.put_text("Choose Your Bot's Vector Model", self.vector_model_text_rect)
+        self.word2vec_btn.draw(win)
+        self.tfidf_btn.draw(win)
         self.start_game_btn.draw(win)
 
     def redraw_game_window(self):        
@@ -364,11 +384,12 @@ class ClueWord: # Florian
 
 
 class GameGenerator: # Max
-    def __init__(self,possible_words: List[str],player_team:int,player_is_guesser:bool) -> None:
+    def __init__(self,possible_words: List[str],player_team:int,player_is_guesser:bool,chosen_vector_model:str) -> None:
         self.possible_words = possible_words
         self.game_words = []
         self.player_team = player_team
         self.player_is_guesser = player_is_guesser
+        self.chosen_vector_model = chosen_vector_model
         self.game_manager = None
         self.game_ui_creator = None
         self.clue_giver_bot = None
@@ -806,7 +827,11 @@ class GameManager: # Florian
         self.guesses_left = 0
         self.opponent_strength = 0.7
         self.opponent_next_guess_prob = 0.6
+        self.total_guesses = 0
+        self.correct_guesses = 0     
+        self.success_rate = 0   
         self.game_flow_thread = threading.Thread(target=self.start_game,daemon=True)
+        self.game_finished = False 
 
     def set_game_ui_creator(self,game_ui_creator:GameUiCreator):
         self.game_ui_creator = game_ui_creator        
@@ -882,6 +907,11 @@ class GameManager: # Florian
             self.set_game_text("Congratulations, you won the game!") 
         elif self.player_lost: 
             self.set_game_text("You lost. Better luck next time!")
+        if self.total_guesses > 0:
+            self.success_rate = self.correct_guesses / self.total_guesses
+        else: 
+            self.success_rate = 0.0
+        self.game_finished = True 
 
     def tick(self):
         self.game_ui_creator.redraw_game_window()
@@ -999,6 +1029,8 @@ class GameManager_PlayerIsGuesser(GameManager): # Florian
     def handle_guess(self,game_word):
         if game_word.belonging == self.player_team:
             if self.active_team == self.player_team:
+                self.total_guesses += 1
+                self.correct_guesses += 1
                 self.set_game_text("You guessed correctly!")
                 if not self.check_for_game_end():
                     self.guesses_left -= 1
@@ -1012,6 +1044,7 @@ class GameManager_PlayerIsGuesser(GameManager): # Florian
                     self.end_turn()
         elif game_word.belonging == GameWord.lookup_belonging("bomb"):
             if self.active_team == self.player_team:
+                self.total_guesses += 1
                 self.set_game_text("Oh no! You guessed the forbidden bomb word!!")        
                 self.player_lost = True                 
             else:
@@ -1020,12 +1053,14 @@ class GameManager_PlayerIsGuesser(GameManager): # Florian
             self.end_game()
         elif game_word.belonging == GameWord.lookup_belonging("neutral"):
             if self.active_team == self.player_team:
+                self.total_guesses += 1
                 self.set_game_text("You guessed a neutral word.")                
             else: 
                 self.set_game_text("Your opponent guessed a neutral word.")
             self.end_turn()
         else:
             if self.active_team == self.player_team:
+                self.total_guesses += 1
                 self.set_game_text("Bad luck, you guessed a word from the other team.")
                 if not self.check_for_game_end():
                     self.end_turn()
@@ -1097,6 +1132,8 @@ class GameManager_PlayerIsClueGiver(GameManager): # Max
     def handle_guess(self,game_word):
         if game_word.belonging == self.player_team:
             if self.active_team == self.player_team:
+                self.total_guesses += 1
+                self.correct_guesses += 1
                 self.set_game_text("The Bot guessed correctly!")
                 if not self.check_for_game_end():
                     self.guesses_left -= 1
@@ -1110,6 +1147,7 @@ class GameManager_PlayerIsClueGiver(GameManager): # Max
                     self.end_turn()
         elif game_word.belonging == GameWord.lookup_belonging("bomb"):
             if self.active_team == self.player_team:
+                self.total_guesses += 1
                 self.set_game_text("Oh no! The Bot guessed the forbidden bomb word!!")        
                 self.player_lost = True                 
             else:
@@ -1118,12 +1156,14 @@ class GameManager_PlayerIsClueGiver(GameManager): # Max
             self.end_game()
         elif game_word.belonging == GameWord.lookup_belonging("neutral"):
             if self.active_team == self.player_team:
+                self.total_guesses += 1
                 self.set_game_text("The Bot guessed a neutral word.")                
             else: 
                 self.set_game_text("Your Opponent guessed a neutral word.")
             self.end_turn()
         else:
             if self.active_team == self.player_team:
+                self.total_guesses += 1
                 self.set_game_text("Bad luck, the Bot guessed a word from the other team.")
                 if not self.check_for_game_end():
                     self.end_turn()
@@ -1136,7 +1176,56 @@ class GameManager_PlayerIsClueGiver(GameManager): # Max
                     else:
                         self.end_turn()            
 
-    
+class PostGameScreen:
+    def __init__(self,game_manager:GameManager) -> None:
+        self.bg = None
+        self.game_manager = game_manager
+        # Game Statistics 
+        self.header_rect = pygame.Rect(0,0,window_size[0],2*element_height)
+        self.total_guesses_headline_rect = pygame.Rect(0,self.header_rect[3],window_size[0],element_height)
+        self.total_guesses_amount_rect = pygame.Rect(0,self.total_guesses_headline_rect[1] + self.total_guesses_headline_rect[3]/2,window_size[0],element_height)
+
+        self.correct_guesses_headline_rect = pygame.Rect(0,self.total_guesses_amount_rect[1] + self.total_guesses_amount_rect[3],window_size[0],element_height)
+        self.correct_guesses_amount_rect = pygame.Rect(0,self.correct_guesses_headline_rect[1] + self.correct_guesses_headline_rect[3]/2,window_size[0],element_height)
+
+        self.guess_success_headline_rect = pygame.Rect(0,self.correct_guesses_amount_rect[1] + self.correct_guesses_amount_rect[3],window_size[0],element_height)
+        self.guess_success_amount_rect = pygame.Rect(0,self.guess_success_headline_rect[1] + self.guess_success_headline_rect[3]/2,window_size[0],element_height)
+
+        self.exit_rect = pygame.Rect(window_size[0]/2 - 1/2 * word_button_size[0],self.guess_success_amount_rect[1]+self.guess_success_amount_rect[3],word_button_size[0],word_button_size[1])
+        self.exit_btn = ButtonElement(self,self.exit_rect,"Exit Game",True,hover_color=word_button_color_teamA,active_color=word_button_color_teamA)
+        
+        self.exit = False 
+       
+    def create_main_menu(self):
+        pass
+
+    def put_text(self,text:str,rect,font = codenames_font,text_color = standard_font_color):
+        text_surface = font.render(text,True,text_color)
+        text_rect = text_surface.get_rect(center=(rect[0]+rect[2]/2,rect[1]+rect[3]/2))
+        win.blit(text_surface,(text_rect))
+
+    def button_callback(self,button):
+        if button == self.exit_btn:
+            self.exit = True 
+
+    def draw(self,win):
+        self.put_text("Game Results",self.header_rect,font = header_font)
+        self.put_text("Total guesses from your team:", self.total_guesses_headline_rect)
+        self.put_text(str(self.game_manager.total_guesses), self.total_guesses_amount_rect)
+        self.put_text("Correct guesses from your team:", self.correct_guesses_headline_rect)
+        self.put_text(str(self.game_manager.correct_guesses), self.correct_guesses_amount_rect)
+        self.put_text("Success rate:", self.guess_success_headline_rect)
+        self.put_text(str(round(self.game_manager.success_rate,2)*100) + '%', self.guess_success_amount_rect)
+
+        self.exit_btn.draw(win)
+
+    def redraw_game_window(self):        
+        if self.bg != None:
+            win.blit(self.bg,(0,0))
+        else:
+            win.fill(window_bg_color)
+        self.draw(win)
+        pygame.display.update()  
         
 
 if __name__ == "__main__":    
@@ -1155,11 +1244,10 @@ if __name__ == "__main__":
         main_menu.redraw_game_window()
         if main_menu.start_game:
             player_is_guesser = True if main_menu.chosen_role == 'guesser' else False 
-            player_team = GameWord.lookup_belonging(main_menu.chosen_team)
-            game_generator = GameGenerator(codenames_words,player_team,player_is_guesser)
+            player_team = GameWord.lookup_belonging(main_menu.chosen_team)            
+            game_generator = GameGenerator(codenames_words,player_team,player_is_guesser,main_menu.chosen_vector_model)
             main_menu_running = False
-            run = True 
-
+            run = True
     while run:
         clock.tick(30)
         for event in pygame.event.get():
@@ -1169,4 +1257,17 @@ if __name__ == "__main__":
                 if event.type == pygame.KEYDOWN:
                     game_generator.game_ui_creator.clue_input.type(event)
         game_generator.game_manager.tick()
+        if game_generator.game_manager.game_finished:
+            post_game_screen = PostGameScreen(game_generator.game_manager)            
+            run = False 
+            post_game_running = True 
+    while post_game_running: 
+        clock.tick(30)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                post_game_running = False
+        post_game_screen.redraw_game_window()
+        if post_game_screen.exit:
+            post_game_running = False 
+        
 
