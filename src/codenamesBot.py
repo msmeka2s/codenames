@@ -1,3 +1,4 @@
+from __future__ import annotations
 import sys 
 import os
 import math
@@ -18,10 +19,18 @@ import pygame
 pygame.init()
 pygame.font.init()
 
+
+# --- GLOBAL VARIABLES
+# codenames data 
+codenames_words = []
+with open('../data/codenamesWords.txt') as f:
+    lines = f.readlines()
+    for line in lines:
+        codenames_words.append(line.strip('\n'))
+
+# window
 codenames_font = pygame.font.SysFont('Calibri',35)
 header_font = pygame.font.SysFont('Calibri',80)
-# --- GLOBAL VARIABLES
-# window
 window_size = (1200,960)
 window_bg_color = (221,207,180)
 # standard values
@@ -36,7 +45,7 @@ word_button_color_teamA = (232,93,100)
 word_button_color_teamB = (104,168,232)
 word_button_color_bomb = (0,0,0)
 font_color_bomb = (200,200,200)
-font_color_disabled = (110,100,90)
+font_color_disabled = (221,207,180)
 word_button_color_blink = (252,132,3)
 # clue input
 clue_word_size = (500,element_height)
@@ -111,7 +120,7 @@ class ButtonElement:
             disabled_color.append((color[i] + 2*window_bg_color[i])/3)
         self.draw_color = tuple(disabled_color)             
         self.font_color = font_color_disabled
-        self.callback_object.button_disabled()
+        self.callback_object.button_revealed()
 
     def blink(self):
         self.blink_counter += 1
@@ -120,7 +129,11 @@ class ButtonElement:
             self.blink_step += 1
             if self.blink_step >= self.blink_amount:                
                 self.blinking = False
-                self.disable()                
+                if not self.active:
+                    self.set_active(True)
+                    self.callback_object.button_revealed()
+                else:
+                    self.disable()                
             else:
                 if self.blink_step % 2 == 0:
                     if self.active:
@@ -428,7 +441,7 @@ class GameGenerator: # Max
         self.game_manager.game_flow_thread.start()
 
 class ClueGiverBot: # Florian
-    def __init__(self, vector_model, team: int, game_words: List[GameWord], similar_word_cutoff: int=200) -> None:
+    def __init__(self, vector_model:VectorModel, team: int, game_words: List[GameWord], similar_word_cutoff: int=200) -> None:
         self.vector_model = vector_model
         self.team = team 
         self.game_words = game_words
@@ -466,7 +479,13 @@ class ClueGiverBot: # Florian
             if clue_word.get_clue_score() > best_clue.clue_score:
                 best_clue = clue_word
         return best_clue
-    
+
+    def get_clue(self):
+        index = randrange(len(codenames_words))
+        clue_word = codenames_words[index]
+        amount = randrange(1,5)
+        return tuple((clue_word,amount))
+
     def give_clue(self,clue:ClueWord):
         pass 
 
@@ -499,7 +518,7 @@ class GuesserBot: # Max
         pass 
 
 class WordButton: # Florian
-    def __init__(self,game_word:GameWord,pos_x:int,pos_y:int,game_manager,bg_img = None) -> None:
+    def __init__(self,game_word:GameWord,pos_x:int,pos_y:int,game_manager:GameManager,game_ui_creator:GameUiCreator,bg_img = None) -> None:
         self.game_word = game_word        
         self.game_manager = game_manager        
         self.rect = pygame.Rect(pos_x,pos_y,word_button_size[0],word_button_size[1])
@@ -508,7 +527,9 @@ class WordButton: # Florian
         self.font_color = standard_font_color
         self.get_active_color()        
         self.button = ButtonElement(self,self.rect,self.game_word.word,False,font_color=self.font_color,hover_color=word_button_color_hover,active_color=self.active_color,active_font_color=self.active_font_color)
-        self.button_blinked_finished_event = threading.Event()
+        self.word_clicked_event = threading.Event()
+        self.word_revealed_event = threading.Event()
+        self.game_ui_creator = game_ui_creator          
 
     def draw(self,win):        
         self.button.draw(win)
@@ -520,15 +541,16 @@ class WordButton: # Florian
         self.button.draw_frame = draw_frame
         
     def button_callback(self,button):
-        self.get_active_color() 
+        self.game_manager.game_ui_creator.set_word_buttons_interactable(False)
+        self.game_manager.guessed_word = self.game_word
+        self.game_ui_creator.word_button_clicked()
 
-    def button_disabled(self):  
-        self.game_manager.guessed_word = self.game_word       
-        self.button_blinked_finished_event.set()
+    def button_revealed(self):          
+        self.word_revealed_event.set()
 
     def guess_word(self):
         self.button.start_blinking()
-        self.game_word.reveal_belonging()        
+        self.game_word.reveal_belonging()            
 
     def get_active_color(self):
         if self.game_word.belonging == 0:
@@ -542,7 +564,7 @@ class WordButton: # Florian
             self.active_color = word_button_color_neutral
 
 class ClueInput:
-    def __init__(self,pos_x_clue:int,pos_y_clue:int,pos_x_amount:int,pos_y_amount:int, pos_x_send:int, pos_y_send:int, game_manager) -> None:    
+    def __init__(self,pos_x_clue:int,pos_y_clue:int,pos_x_amount:int,pos_y_amount:int, pos_x_send:int, pos_y_send:int, game_manager:GameManager) -> None:    
         self.rect_clue = pygame.Rect(pos_x_clue,pos_y_clue,clue_word_size[0],clue_word_size[1])
         self.rect_amount = pygame.Rect(pos_x_amount,pos_y_amount,clue_amount_size[0],clue_amount_size[1])
         self.rect_send_btn = pygame.Rect(pos_x_send,pos_y_send,clue_send_btn_size[0],clue_send_btn_size[1])
@@ -553,8 +575,9 @@ class ClueInput:
         self.rect_original_send_btn = self.rect_send_btn
         self.rect_hover_send_btn = pygame.Rect(pos_x_send-x_offset_hover,pos_y_send-y_offset_hover,hover_factor*clue_send_btn_size[0],hover_factor*clue_send_btn_size[1])
         self.input_enabled = False
-        self.clue_text = "Enter a Clue."
-        self.amount_text = "1"
+        self.draw_input_boxes = False
+        self.clue_text = ""
+        self.amount_text = ""
         self.clue_input_active = False 
         self.amount_input_active = False
         self.clue_input_init = False
@@ -677,8 +700,7 @@ class ClueInput:
                 self.clue_input_active = False 
                 self.amount_input_active = False 
                 player_typing = False
-                self.flash_counter = 0
-        
+                self.flash_counter = 0        
 
     def send_clue(self):     
         self.send_btn_active = False  
@@ -689,11 +711,18 @@ class ClueInput:
             self.game_manager.raise_invalid_input()
             return        
         self.game_manager.player_clue = clue 
-        self.input_provided_event.set()        
+        self.input_provided_event.set()   
 
-    def reset_input(self):
-        self.clue_text = 'Enter a Clue.'
-        self.amount_text = '1'
+    def enable_input(self):
+        self.set_clue_text('Enter a Clue.','1')
+        self.input_enabled = True 
+
+    def set_clue_text(self,clue_text,amount_text):
+        self.clue_text = clue_text
+        self.amount_text = amount_text
+
+    def reset_input(self,clue_text='',amount_text=''):
+        self.set_clue_text(clue_text,amount_text)
         self.clue_input_init = False 
         self.amount_input_init = False 
         self.clue_entered = False 
@@ -704,7 +733,7 @@ class ClueInput:
 
     def draw(self,win):    
         global player_typing      
-        if not self.clue_sent:
+        if not self.clue_sent and self.input_enabled:
             # clue input
             pygame.draw.rect(win,clue_color,self.rect_clue,border_radius=10)
             pygame.draw.rect(win,clue_frame_color,self.rect_clue,4,border_radius=10)
@@ -740,7 +769,7 @@ class GameText:
         self.font_color = text_color
         self.rect = pygame.Rect(pos_x,pos_y,game_text_size[0],game_text_size[1])
         self.show_text = False 
-        self.type_interval = 0.05
+        self.type_interval = 0.04
         self.type_event = threading.Event()
         self.type_text = ''
         self.draw(win)
@@ -766,218 +795,30 @@ class GameText:
         self.type()
 
 class GameManager: # Florian
-    def __init__(self) -> None:
+    def __init__(self,game_words: List[GameWord],player_team:int) -> None:
         self.game_ui_creator = None
-
-    def set_game_ui_creator(self,game_ui_creator):
-        self.game_ui_creator = game_ui_creator
-
-class GameUiCreator: # Florian
-    def __init__(self,game_words:List[GameWord],player_is_guesser:bool,player_team:int,game_manager:GameManager) -> None:
-        self.game_words = game_words
-        self.player_is_guesser = player_is_guesser
-        self.player_team = player_team
-        self.game_manager = game_manager
-        self.word_buttons = []
-        self.clue_input = None 
-        self.clue_amount_input = None
-        self.game_text = None
-        self.words_per_row = 5
-        self.words_per_col = len(game_words) / self.words_per_row
-        self.bg = None 
-        self.create_game_ui()
-
-    def create_game_ui(self):
-        current_row = 0
-        current_col = 0
-        space_x = (window_size[0] - (self.words_per_row*word_button_size[0])) / (self.words_per_row + 1)
-        space_y = (window_size[1] - element_height*(2+self.words_per_col)) / (3+self.words_per_col)
-        for game_word in self.game_words:
-            pos_x = (current_col+1)*space_x + current_col*word_button_size[0]
-            pos_y = (current_row+1)*space_y + current_row*word_button_size[1]
-            word_button = WordButton(game_word,pos_x,pos_y,self.game_manager)
-            if not self.player_is_guesser:
-                word_button.set_active()
-                if game_word.belonging == self.player_team:
-                    word_button.show_frame(True)
-            self.word_buttons.append(word_button)
-            if current_col >= self.words_per_row-1:
-                current_row += 1
-                current_col = 0
-            else: 
-                current_col += 1        
-        game_text_y = pos_y + word_button_size[1] + space_y
-        self.game_text = GameText(space_x,game_text_y,'')
-        clue_input_x = 2*space_x + clue_word_size[0]
-        clue_send_btn_x = space_x + clue_input_x + clue_amount_size[0]
-        clue_input_y = game_text_y + clue_word_size[1] + space_y
-        self.clue_input = ClueInput(space_x,clue_input_y,clue_input_x,clue_input_y,clue_send_btn_x,clue_input_y,self.game_manager)
-             
-    def redraw_game_window(self):
-        if self.bg != None:
-            win.blit(self.bg,(0,0))
-        else:
-            win.fill(window_bg_color)
-        
-        for word_button in self.word_buttons:
-            word_button.draw(win)
-
-        self.clue_input.draw(win)
-        self.game_text.draw(win)
-        pygame.display.update()   
-    
-    def get_word_button_from_game_word(self,game_word):
-        for word_button in self.word_buttons:
-            if word_button.game_word == game_word:
-                return word_button
-
-
-    def show_clue_from_bot(self,clue:Tuple[str,int]):
-        pass 
-
-    def reveal_player_guess(self,pressed_button:WordButton):
-        pass 
-
-    def reveal_bot_guess(self,bot_guess:GameWord):
-        pass 
-        
-    
-
-class GameManager_PlayerIsGuesser(GameManager): # Florian
-    def __init__(self,game_words:List[GameWord],player_team:int,clue_giver_bot:ClueGiverBot) -> None:
         self.game_words = game_words
         self.player_team = player_team
-        self.clue_giver_bot = clue_giver_bot
-        self.game_ui_creator = None
-
-    def start_game(self):
-        pass 
-
-    def get_clue_from_bot(self):
-        pass 
-
-    def handle_player_guess(self,pressed_button:WordButton):
-        pass 
-
-    def check_for_game_end(self) -> bool:
-        pass 
-
-    def enable_next_guess(self):
-        pass 
-
-    def end_turn(self):
-        pass 
-
-    def end_game(self):
-        pass 
-
-class GameManager_PlayerIsClueGiver(GameManager): # Max 
-    def __init__(self,game_words: List[GameWord],player_team:int,guesser_bot:GuesserBot) -> None:
-        self.game_words = game_words
-        self.player_team = player_team
-        self.guesser_bot = guesser_bot
-        self.game_ui_creator = None
-        self.active_team = 1
-        self.player_clue = None
-        self.guesses_left = 0
         self.guessed_word = None
-        self.bot_thinking = False
         self.player_won = False 
         self.player_lost = False 
+        self.active_team = 1
+        self.guesses_left = 0
         self.opponent_strength = 0.7
         self.opponent_next_guess_prob = 0.6
         self.game_flow_thread = threading.Thread(target=self.start_game,daemon=True)
-        self.timer = 0
+
+    def set_game_ui_creator(self,game_ui_creator:GameUiCreator):
+        self.game_ui_creator = game_ui_creator        
 
     def start_game(self):
         self.start_turn()
 
-    def start_turn(self):
-        if self.active_team == self.player_team:
-            self.ask_for_player_clue() 
-        else: 
-            self.guesses_left = 5                        
-            guess = self.simulate_opponent_turn()
-            self.reveal_guessed_word(guess)            
-    
     def set_game_text(self,text,delay=1):
         self.game_ui_creator.game_text.set_text(text)
         self.game_ui_creator.game_text.type_event.wait()
         self.game_ui_creator.game_text.type_event.clear()
         time.sleep(delay)
-
-    def ask_for_player_clue(self):
-        self.set_game_text("Please enter a clue and the amount of words it refers to.",0)
-        self.game_ui_creator.clue_input.input_enabled = True
-        self.game_ui_creator.clue_input.input_provided_event.wait()
-        self.game_ui_creator.clue_input.input_provided_event.clear()
-        self.handle_player_input()
-
-    def handle_player_input(self):
-        self.game_ui_creator.clue_input.input_enabled = False 
-        self.guesses_left = self.player_clue[1]
-        self.pass_clue_to_bot()  
-
-    def raise_invalid_input(self):
-        self.set_game_text("Invalid input. Please try again.")
-
-    def pass_clue_to_bot(self):
-        self.set_game_text("Bot is thinking...")
-        bot_think_timer = threading.Timer(1,self.get_guess_from_bot,[self.player_clue])
-        bot_think_timer.start()
-
-    def get_guess_from_bot(self,player_clue):        
-        guess = self.guesser_bot.take_guess(player_clue)
-        self.reveal_guessed_word(guess)
-
-    def reveal_guessed_word(self,guess):
-        guess_word_button = self.game_ui_creator.get_word_button_from_game_word(guess)
-        guess_word_button.guess_word()
-        guess_word_button.button_blinked_finished_event.wait()
-        guess_word_button.button_blinked_finished_event.clear()
-        self.handle_guess(self.guessed_word)        
-
-    def handle_guess(self,game_word):
-        if game_word.belonging == self.player_team:
-            if self.active_team == self.player_team:
-                self.set_game_text("The Bot guessed correctly!")
-                if not self.check_for_game_end():
-                    self.guesses_left -= 1
-                    if self.guesses_left > 0:
-                        self.pass_clue_to_bot()
-                    else:
-                        self.end_turn()
-            else:
-                self.set_game_text("Your Opponent guessed one of your words!")
-                if not self.check_for_game_end():
-                    self.end_turn()
-        elif game_word.belonging == GameWord.lookup_belonging("bomb"):
-            if self.active_team == self.player_team:
-                self.set_game_text("Oh no! The Bot guessed the forbidden Bomb Word!!")        
-                self.player_lost = True                 
-            else:
-                self.set_game_text("Your opponent guessed the forbidden Bomb Word!!")
-                self.player_won = True 
-            self.end_game()
-        elif game_word.belonging == GameWord.lookup_belonging("neutral"):
-            if self.active_team == self.player_team:
-                self.set_game_text("The Bot guessed a Neutral Word.")                
-            else: 
-                self.set_game_text("Your Opponent guessed a Neutral Word.")
-            self.end_turn()
-        else:
-            if self.active_team == self.player_team:
-                self.set_game_text("Bad luck, the Bot guessed a Word from the other Team.")
-                if not self.check_for_game_end():
-                    self.end_turn()
-            else:
-                self.set_game_text("Your Opponent guessed correctly.")
-                if not self.check_for_game_end():
-                    if self.guesses_left > 0:
-                        guess = self.simulate_opponent_turn()
-                        self.reveal_guessed_word(guess)            
-                    else:
-                        self.end_turn()            
 
     def simulate_opponent_turn(self):
         self.guesses_left -= 1
@@ -998,26 +839,304 @@ class GameManager_PlayerIsClueGiver(GameManager): # Max
         return guess 
     
     def check_for_game_end(self) -> bool:
-        return False  
+        remaining_words = [game_word for game_word in self.game_words if not game_word.revealed]
+        count_team_a = 0
+        count_team_b = 0
+        for word in remaining_words:
+            if word.belonging == GameWord.lookup_belonging("team_a"):
+                count_team_a += 1
+            elif word.belonging == GameWord.lookup_belonging("team_b"):
+                count_team_b += 1
+            if count_team_a > 0 and count_team_b > 0:
+                return False 
+
+        if count_team_a == 0:
+            if self.player_team == 1:
+                self.player_won = True 
+            else: 
+                self.player_lost = True 
+            self.end_game()
+            return True 
+        elif count_team_b == 0:
+            if self.player_team == 2:
+                self.player_won =  True
+            else: 
+                self.player_lost = True 
+            self.end_game()
+            return True 
+        else: 
+            return False 
 
     def end_turn(self):
         if self.active_team == self.player_team:
-            self.set_game_text("It is now your opponent's turn.")             
+            self.set_game_text("It is now your opponent's turn.")
         else: 
             self.set_game_text("It is now your turn.")
-        if self.active_team == 1:
-                self.active_team = 2
-        else: 
-            self.active_team = 1
+        self.active_team = 1 if self.active_team == 2 else 2        
         self.game_ui_creator.clue_input.reset_input()
         self.start_turn()
 
 
     def end_game(self):
-        pass 
+        if self.player_won:
+            self.set_game_text("Congratulations, you won the game!") 
+        elif self.player_lost: 
+            self.set_game_text("You lost. Better luck next time!")
 
     def tick(self):
         self.game_ui_creator.redraw_game_window()
+
+class GameUiCreator: # Florian
+    def __init__(self,game_words:List[GameWord],player_is_guesser:bool,player_team:int,game_manager:GameManager) -> None:
+        self.game_words = game_words
+        self.player_is_guesser = player_is_guesser
+        self.player_team = player_team
+        self.game_manager = game_manager
+        self.clue_input = None 
+        self.clue_amount_input = None
+        self.game_text = None
+        self.words_per_row = 5
+        self.words_per_col = len(game_words) / self.words_per_row
+        self.bg = None 
+        self.word_button_clicked_event = threading.Event()
+        self.word_buttons = self.create_game_ui()
+
+    def create_game_ui(self)->list(WordButton):
+        current_row = 0
+        current_col = 0
+        space_x = (window_size[0] - (self.words_per_row*word_button_size[0])) / (self.words_per_row + 1)
+        space_y = (window_size[1] - element_height*(2+self.words_per_col)) / (3+self.words_per_col)
+        word_buttons = []
+        for game_word in self.game_words:
+            pos_x = (current_col+1)*space_x + current_col*word_button_size[0]
+            pos_y = (current_row+1)*space_y + current_row*word_button_size[1]
+            word_button = WordButton(game_word,pos_x,pos_y,self.game_manager,self)
+            if not self.player_is_guesser:
+                word_button.set_active()
+                if game_word.belonging == self.player_team:
+                    word_button.show_frame(True)
+            word_buttons.append(word_button)
+            if current_col >= self.words_per_row-1:
+                current_row += 1
+                current_col = 0
+            else: 
+                current_col += 1        
+        game_text_y = pos_y + word_button_size[1] + space_y
+        self.game_text = GameText(space_x,game_text_y,'')
+        clue_input_x = 2*space_x + clue_word_size[0]
+        clue_send_btn_x = space_x + clue_input_x + clue_amount_size[0]
+        clue_input_y = game_text_y + clue_word_size[1] + space_y
+        self.clue_input = ClueInput(space_x,clue_input_y,clue_input_x,clue_input_y,clue_send_btn_x,clue_input_y,self.game_manager)
+        
+        return word_buttons
+
+    def word_button_clicked(self):
+        self.word_button_clicked_event.set()
+
+    def set_word_buttons_interactable(self,interactable):
+        for word_button in self.word_buttons:
+            word_button.button.interactable = interactable
+             
+    def redraw_game_window(self):
+        if self.bg != None:
+            win.blit(self.bg,(0,0))
+        else:
+            win.fill(window_bg_color)
+        
+        for word_button in self.word_buttons:
+            word_button.draw(win)
+
+        self.clue_input.draw(win)
+        self.game_text.draw(win)
+        pygame.display.update()   
+    
+    def get_word_button_from_game_word(self,game_word)->WordButton: 
+        for word_button in self.word_buttons:
+            if word_button.game_word == game_word:
+                return word_button
+
+
+    def show_clue_from_bot(self,clue:Tuple[str,int]):
+        pass 
+
+    def reveal_player_guess(self,pressed_button:WordButton):
+        pass 
+
+    def reveal_bot_guess(self,bot_guess:GameWord):
+        pass 
+        
+    
+
+class GameManager_PlayerIsGuesser(GameManager): # Florian
+    def __init__(self,game_words:List[GameWord],player_team:int,clue_giver_bot:ClueGiverBot) -> None:
+        super().__init__(game_words,player_team)        
+        self.clue_giver_bot = clue_giver_bot
+        self.bot_clue = None         
+
+    def start_turn(self):
+        if self.active_team == self.player_team:
+            self.get_clue_from_bot() 
+        else: 
+            self.guesses_left = 5            
+            guess = self.simulate_opponent_turn()
+            self.reveal_guessed_word(guess)
+
+    def get_clue_from_bot(self):
+        self.set_game_text("Bot is thinking...",2)        
+        self.bot_clue = self.clue_giver_bot.get_clue() 
+        self.set_game_text("Bot is giving a clue.")
+        self.game_ui_creator.clue_input.set_clue_text(self.bot_clue[0],str(self.bot_clue[1]))
+        self.guesses_left = self.bot_clue[1]
+        self.handle_player_guess()
+
+    def handle_player_guess(self):        
+        self.game_ui_creator.set_word_buttons_interactable(True)        
+        self.set_game_text("Please choose a word.")
+        self.game_ui_creator.word_button_clicked_event.wait()
+        self.game_ui_creator.word_button_clicked_event.clear()
+        self.reveal_guessed_word(self.guessed_word)
+        
+    def handle_guess(self,game_word):
+        if game_word.belonging == self.player_team:
+            if self.active_team == self.player_team:
+                self.set_game_text("You guessed correctly!")
+                if not self.check_for_game_end():
+                    self.guesses_left -= 1
+                    if self.guesses_left > 0:
+                        self.handle_player_guess()
+                    else:
+                        self.end_turn()
+            else:
+                self.set_game_text("Your opponent guessed one of your words!")
+                if not self.check_for_game_end():
+                    self.end_turn()
+        elif game_word.belonging == GameWord.lookup_belonging("bomb"):
+            if self.active_team == self.player_team:
+                self.set_game_text("Oh no! You guessed the forbidden bomb word!!")        
+                self.player_lost = True                 
+            else:
+                self.set_game_text("Your opponent guessed the forbidden bomb word!!")
+                self.player_won = True 
+            self.end_game()
+        elif game_word.belonging == GameWord.lookup_belonging("neutral"):
+            if self.active_team == self.player_team:
+                self.set_game_text("You guessed a neutral word.")                
+            else: 
+                self.set_game_text("Your opponent guessed a neutral word.")
+            self.end_turn()
+        else:
+            if self.active_team == self.player_team:
+                self.set_game_text("Bad luck, you guessed a word from the other team.")
+                if not self.check_for_game_end():
+                    self.end_turn()
+            else:
+                self.set_game_text("Your opponent guessed correctly.")
+                if not self.check_for_game_end():
+                    if self.guesses_left > 0:
+                        guess = self.simulate_opponent_turn()
+                        self.reveal_guessed_word(guess)            
+                    else:
+                        self.end_turn()            
+
+    def reveal_guessed_word(self,guess):
+        self.guessed_word = guess
+        guess_word_button = self.game_ui_creator.get_word_button_from_game_word(guess)
+        guess_word_button.guess_word()
+        guess_word_button.word_revealed_event.wait()
+        guess_word_button.word_revealed_event.clear()
+        self.handle_guess(self.guessed_word)     
+
+    def enable_next_guess(self):
+        pass     
+
+class GameManager_PlayerIsClueGiver(GameManager): # Max 
+    def __init__(self,game_words: List[GameWord],player_team:int,guesser_bot:GuesserBot) -> None:        
+        super().__init__(game_words,player_team)
+        self.guesser_bot = guesser_bot  
+        self.player_clue = None
+
+    def start_turn(self):
+        if self.active_team == self.player_team:
+            self.ask_for_player_clue() 
+        else: 
+            self.guesses_left = 5                        
+            guess = self.simulate_opponent_turn()
+            self.reveal_guessed_word(guess)
+
+    def ask_for_player_clue(self):
+        self.set_game_text("Please enter a clue and the amount of words it refers to.",0)
+        self.game_ui_creator.clue_input.enable_input()
+        self.game_ui_creator.clue_input.input_provided_event.wait()
+        self.game_ui_creator.clue_input.input_provided_event.clear()
+        self.handle_player_input()
+
+    def handle_player_input(self):
+        self.game_ui_creator.clue_input.input_enabled = False 
+        self.guesses_left = self.player_clue[1]
+        self.pass_clue_to_bot()
+
+    def raise_invalid_input(self):
+        self.set_game_text("Invalid input. Please try again.")
+
+    def pass_clue_to_bot(self):
+        self.set_game_text("Bot is thinking...",2)
+        self.get_guess_from_bot(self.player_clue)
+
+    def get_guess_from_bot(self,player_clue):        
+        guess = self.guesser_bot.take_guess(player_clue)
+        self.reveal_guessed_word(guess)
+
+    def reveal_guessed_word(self,guess):
+        self.guessed_word = guess 
+        guess_word_button = self.game_ui_creator.get_word_button_from_game_word(guess)
+        guess_word_button.guess_word()
+        guess_word_button.word_revealed_event.wait()
+        guess_word_button.word_revealed_event.clear()
+        self.handle_guess(self.guessed_word)
+        
+    def handle_guess(self,game_word):
+        if game_word.belonging == self.player_team:
+            if self.active_team == self.player_team:
+                self.set_game_text("The Bot guessed correctly!")
+                if not self.check_for_game_end():
+                    self.guesses_left -= 1
+                    if self.guesses_left > 0:
+                        self.pass_clue_to_bot()
+                    else:
+                        self.end_turn()
+            else:
+                self.set_game_text("Your opponent guessed one of your words!")
+                if not self.check_for_game_end():
+                    self.end_turn()
+        elif game_word.belonging == GameWord.lookup_belonging("bomb"):
+            if self.active_team == self.player_team:
+                self.set_game_text("Oh no! The Bot guessed the forbidden bomb word!!")        
+                self.player_lost = True                 
+            else:
+                self.set_game_text("Your opponent guessed the forbidden bomb word!!")
+                self.player_won = True 
+            self.end_game()
+        elif game_word.belonging == GameWord.lookup_belonging("neutral"):
+            if self.active_team == self.player_team:
+                self.set_game_text("The Bot guessed a neutral word.")                
+            else: 
+                self.set_game_text("Your Opponent guessed a neutral word.")
+            self.end_turn()
+        else:
+            if self.active_team == self.player_team:
+                self.set_game_text("Bad luck, the Bot guessed a word from the other team.")
+                if not self.check_for_game_end():
+                    self.end_turn()
+            else:
+                self.set_game_text("Your opponent guessed correctly.")
+                if not self.check_for_game_end():
+                    if self.guesses_left > 0:
+                        guess = self.simulate_opponent_turn()
+                        self.reveal_guessed_word(guess)            
+                    else:
+                        self.end_turn()            
+
+    
         
 
 if __name__ == "__main__":    
@@ -1029,19 +1148,15 @@ if __name__ == "__main__":
     # main loop
     main_menu_running = True 
     while main_menu_running:        
-        clock.tick(30)
+        clock.tick(30)        
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 main_menu_running = False                        
         main_menu.redraw_game_window()
         if main_menu.start_game:
-            possible_words = []
-            for word in ['Tomato','Bench','Hair','Sand','Apple','Uniform','Jacket','Present','Box','Baseball','Orange','Majority','Window','Gun','Kite','Bowl','Castle','Mars','Material','Keyboard','Pocket','Phone','Discussion','Song','Pasta','Chimney','Stone','Treehouse','Coffee']:
-                possible_words.append(word)
-            
             player_is_guesser = True if main_menu.chosen_role == 'guesser' else False 
             player_team = GameWord.lookup_belonging(main_menu.chosen_team)
-            game_generator = GameGenerator(possible_words,player_team,player_is_guesser)
+            game_generator = GameGenerator(codenames_words,player_team,player_is_guesser)
             main_menu_running = False
             run = True 
 
